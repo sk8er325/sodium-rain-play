@@ -419,6 +419,11 @@ table.score tr.team-head td { padding-top: 12px; color: var(--muted); font-size:
           <span id="net-room" class="num">방 없음</span>
           <button id="btn-host" class="btn" type="button">방 만들기</button>
         </div>
+        <div id="net-invite" class="net-row hidden">
+          <span class="label">초대</span>
+          <span class="num">친구에게 링크를 보내면 바로 들어옵니다</span>
+          <button id="btn-invite" class="btn" type="button">초대 링크 복사</button>
+        </div>
         <div class="net-row">
           <label class="label" for="net-code">참가 코드</label>
           <input id="net-code" class="net-input" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="ABCDE">
@@ -8959,6 +8964,7 @@ function ui_bindEvents() {
   });
   ui_onButton(ui_el['btn-host'], net_hostRoom);
   ui_onButton(ui_el['btn-join'], function () { net_joinRoom(ui_el['net-code'].value); });
+  ui_onButton(document.getElementById('btn-invite'), net_copyInvite);
   ui_el['net-code'].addEventListener('keydown', function (e) { if (e.key === 'Enter') net_joinRoom(ui_el['net-code'].value); });
   ui_el['opt-map'].addEventListener('click', function (e) {
     const b = e.target.closest('button[data-map]');
@@ -9118,6 +9124,15 @@ function net_roomLabel() {
   if (tab) { const dot = tab.querySelector('.dot'); if (net_role !== '' && !dot) { const d = document.createElement('span'); d.className = 'dot'; d.setAttribute('aria-label', '연결됨'); tab.appendChild(d); } else if (net_role === '' && dot) dot.remove(); }
   ui_el['net-room'].textContent = net_role === 'host' ? net_code + ' · ' + (net_guests.length + 1) + '명'
     : net_role === 'guest' ? net_code + ' 참가 중' : '방 없음';
+  document.getElementById('net-invite').classList.toggle('hidden', net_role !== 'host');
+}
+// 초대 링크: 이 주소에 ?room=코드 를 붙인 것. 열면 온라인 탭에서 바로 참가한다(부트스트랩의 room 처리)
+function net_inviteUrl() { return window.location.origin + window.location.pathname + '?room=' + net_code; }
+function net_copyInvite() {
+  const url = net_inviteUrl();
+  const done = function () { net_status('초대 링크를 복사했습니다. 친구에게 붙여 넣어 보내세요.'); };
+  const fail = function () { net_status('복사하지 못했습니다. 이 주소를 보내세요: ' + url); };
+  try { navigator.clipboard.writeText(url).then(done, fail); } catch (e) { fail(); }
 }
 function net_broadcast(msg) {
   for (let i = 0; i < net_guests.length; i++) { const c = net_guests[i].conn; if (c.open) try { c.send(msg); } catch (e) { /* 끊기는 중 */ } }
@@ -9631,6 +9646,13 @@ function ui_boot() {
   try {
     const rj = JSON.parse(window.sessionStorage.getItem('sodiumRain.rejoin') || 'null');
     window.sessionStorage.removeItem('sodiumRain.rejoin');
+    // 초대 링크(?room=코드)로 들어온 경우: 주소에서 코드를 지우고(새로고침·맵 변경 때 다시 참가하지 않게) 바로 참가한다
+    const inv = (new URLSearchParams(window.location.search).get('room') || '').toUpperCase();
+    if (/^[A-Z0-9]{5}$/.test(inv)) {
+      const u = new URL(window.location.href); u.searchParams.delete('room');
+      window.history.replaceState(null, '', u.toString());
+      if (!rj) { ui_selectTab('online'); ui_el['net-code'].value = inv; net_joinRoom(inv); }
+    }
     if (rj && typeof rj.code === 'string') {
       ui_selectTab('online');
       if (rj.role === 'host') net_hostRoom(rj.code);
