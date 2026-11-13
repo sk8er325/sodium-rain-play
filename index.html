@@ -124,10 +124,17 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 18px; background: var
 #career dt { color: var(--muted); }
 #career dd { margin: 0; text-align: right; font-family: var(--font-num); color: var(--text); }
 #btn-career-reset { padding: 7px 12px; font-size: 12px; }
-#controls-help { padding: 16px 20px; }
+#controls-help { padding: 16px 20px; max-height: calc(100vh - 430px); min-height: 150px; overflow-y: auto; overscroll-behavior: contain; }   /* 키 목록이 길어 낮은 화면에서는 안에서 스크롤 */
 #controls-help dl { margin: 0; display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 7px 12px; align-items: center; font-size: 13.5px; }
 #controls-help dt { white-space: nowrap; }
 #controls-help dd { margin: 0; color: var(--muted); }
+#controls-help dl + dl { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.bind-note { margin: 0 0 12px; font-size: 12.5px; color: var(--muted); }
+.bind { min-width: 74px; padding: 4px 10px; font: inherit; font-family: var(--font-num); font-size: 12.5px; color: var(--text); cursor: pointer;
+  border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 3px; background: rgba(159, 196, 255, 0.05); }
+.bind:hover, .bind:focus-visible { border-color: var(--amber); outline: none; }
+.bind.wait { color: var(--amber); border-color: var(--amber); }
+#btn-binds-reset { margin-top: 14px; padding: 7px 12px; font-size: 12px; }
 kbd {
   display: inline-block; min-width: 24px; padding: 1px 6px; text-align: center; font-family: var(--font-num); font-size: 12px;
   color: var(--text); border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 3px; background: rgba(159, 196, 255, 0.05);
@@ -456,7 +463,7 @@ table.score tr.team-head td { padding-top: 12px; color: var(--muted); font-size:
         </label>
   <label class="opt">
           <span class="label">마우스 감도</span>
-          <input id="opt-sensitivity" type="range" min="0.2" max="3" step="0.05" value="1">
+          <input id="opt-sensitivity" type="range" min="0.02" max="3" step="0.01" value="1">
           <span id="val-sensitivity" class="val num">1.00</span>
         </label>
   <label class="opt">
@@ -471,24 +478,17 @@ table.score tr.team-head td { padding-top: 12px; color: var(--muted); font-size:
       </div>
       <div id="pane-keys" class="pane hidden" role="tabpanel" aria-labelledby="tab-keys">
         <div id="controls-help">
+          <p class="bind-note">키를 누른 뒤 새 키를 누르면 바뀝니다. 이미 쓰는 키면 서로 맞바뀝니다. <kbd>Esc</kbd> 취소</p>
+          <dl id="bind-list"></dl>
           <dl>
-            <dt><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></dt><dd>이동</dd>
             <dt><kbd>마우스</kbd></dt><dd>시점</dd>
             <dt><kbd>좌클릭</kbd></dt><dd>사격</dd>
             <dt><kbd>우클릭</kbd></dt><dd>조준</dd>
-            <dt><kbd>Shift</kbd></dt><dd>달리기 (사격 불가)</dd>
-            <dt><kbd>Ctrl</kbd> <kbd>C</kbd></dt><dd>앉기 (Windows 는 C 권장)</dd>
-            <dt><kbd>Space</kbd></dt><dd>점프</dd>
-            <dt><kbd>Q</kbd></dt><dd>이동 방향 구르기 · 재사용 1.6초</dd>
-            <dt><kbd>Z</kbd> <kbd>휠 클릭</kbd></dt><dd>위치 표시 · 팀전에서 팀원에게 보임</dd>
-        <dt><kbd>G</kbd></dt><dd>수류탄 · 목숨당 2개, 2.2초 뒤 폭발</dd>
-            <dt><kbd>R</kbd></dt><dd>재장전</dd>
-            <dt><kbd>E</kbd></dt><dd>무기 줍기</dd>
+            <dt><kbd>휠</kbd></dt><dd>주 무기 · 권총 교체</dd>
             <dt><kbd>초록 십자</kbd></dt><dd>구급상자 · 닿으면 체력 +50</dd>
-            <dt><kbd>1</kbd> <kbd>2</kbd> <kbd>휠</kbd></dt><dd>주 무기 · 권총 교체</dd>
-            <dt><kbd>Tab</kbd></dt><dd>점수판</dd>
             <dt><kbd>Esc</kbd></dt><dd>일시정지</dd>
           </dl>
+          <button id="btn-binds-reset" class="btn" type="button">키 기본값으로</button>
         </div>
       </div>
     </div>
@@ -558,6 +558,7 @@ const CONFIG = Object.freeze({
   PITCH_LIMIT: 1.55, MAX_HP: 100,
   // 이동
   GRAVITY: 18, JUMP_SPEED: 5.6,                 // 점프 높이 약 0.87m
+  FALL_SAFE: 11.5, FALL_DMG: 9,                 // 낙하 피해: 착지 속도 11.5m/s(약 3.7m 낙하)까지는 없음, 넘는 1m/s 마다 9. 컨테이너 1단(2.6m)+점프는 무사, 2단(5.2m) 약 20, 14m 쯤이면 사망
   WALK_SPEED: 4.6, SPRINT_SPEED: 6.6, CROUCH_SPEED: 2.3, ADS_MOVE_MUL: 0.65,
   GROUND_ACCEL: 45, AIR_ACCEL: 8,               // m/s^2
   STEP_HEIGHT: 0.5, SNAP_DOWN: 0.35,
@@ -2021,7 +2022,7 @@ function s_kill(state, victim, killer, weaponId, headshot) {
   victim.moveSpeed = 0; victim.switchT = 0;
   victim.rollT = 0;
   s_resetWeaponTimers(state, victim, getActiveWeapon(victim));
-  if (killer.id !== victim.id) killer.stats.kills++;   // 자기 수류탄에 죽은 것은 처치로 세지 않는다
+  if (killer.id !== victim.id) killer.stats.kills++;   // 자기 수류탄·낙하로 죽은 것은 처치로 세지 않는다
   if (headshot) killer.stats.headshots++;
   state.events.push({ type: EV.KILL, tick: state.tick, killerId: killer.id, victimId: victim.id, weaponId, headshot,
     x: victim.pos.x, y: victim.pos.y, z: victim.pos.z });
@@ -2109,6 +2110,16 @@ function s_stepMovement(state, cm, a, cmd, dt) {
     state.events.push({ type: EV.LAND, tick: state.tick, actorId: a.id, x: a.pos.x, y: a.pos.y, z: a.pos.z,
       mat: a.groundMat, speed: -vyBefore });
     s_addSound(state, a, CONFIG.NOISE_LAND);
+    // 낙하 피해. 참가자의 예측용 상태(state.predict)에서는 건너뛴다 — 체력은 방장 결과를 따른다
+    const fall = (-vyBefore - CONFIG.FALL_SAFE) * CONFIG.FALL_DMG;
+    if (fall > 0 && !state.predict && a.alive && a.spawnProtect === 0) {
+      a.hp -= fall;
+      const killed = a.hp <= 0;
+      state.events.push({ type: EV.HIT, tick: state.tick, attackerId: a.id, victimId: a.id, weaponId: 'Fall', zone: 'limb', damage: fall,
+        pellets: 1, x: a.pos.x, y: a.pos.y, z: a.pos.z, dx: 0, dy: -1, dz: 0, ax: a.pos.x, ay: a.pos.y, az: a.pos.z,
+        hpLeft: killed ? 0 : a.hp, killed });
+      if (killed) s_kill(state, a, a, 'Fall', false);
+    }
   }
   // 발소리: 앉아 걸으면 나지 않는다
   if (!rolling && a.onGround && a.crouchT < 0.5) {
@@ -7893,7 +7904,7 @@ function ui_loadSettings() {
     const o = JSON.parse(window.localStorage.getItem(ui_SETTINGS_KEY) || 'null');
     if (!o) return;
     if (CONFIG.DIFFICULTIES.indexOf(o.difficulty) >= 0) ui_settings.difficulty = o.difficulty;
-    if (Number.isFinite(o.sensitivity)) ui_settings.sensitivity = clamp(o.sensitivity, 0.2, 3);
+    if (Number.isFinite(o.sensitivity)) ui_settings.sensitivity = clamp(o.sensitivity, 0.02, 3);
     if (Number.isFinite(o.volume)) ui_settings.volume = clamp(o.volume, 0, 1);
     if (typeof o.name === 'string') ui_settings.name = net_cleanName(o.name);
     if (o.quality === 'auto' || o.quality === 'high' || o.quality === 'low') ui_settings.quality = o.quality;
@@ -7903,11 +7914,18 @@ function ui_loadSettings() {
     if (o.mode === 'ffa' || o.mode === 'team') ui_settings.mode = o.mode;
     if (Number.isFinite(o.fov)) ui_settings.fov = clamp(Math.round(o.fov), 60, 110);
     if (typeof o.map === 'string' && MAPS[o.map]) ui_settings.map = o.map;
+    if (o.binds && typeof o.binds === 'object') {
+      const used = {};
+      for (const act in ui_BIND_DEFAULTS) {
+        const c = o.binds[act];
+        if (typeof c === 'string' && c.length < 24 && c !== 'Escape' && !used[c]) { ui_binds[act] = c; used[c] = true; } else if (typeof c === 'string') ui_binds[act] = '';
+      }
+    }
   } catch (e) { /* 무시 */ }
 }
 
 function ui_saveSettings() {
-  try { window.localStorage.setItem(ui_SETTINGS_KEY, JSON.stringify(ui_settings)); } catch (e) { /* 무시 */ }
+  try { window.localStorage.setItem(ui_SETTINGS_KEY, JSON.stringify(Object.assign({}, ui_settings, { binds: ui_binds }))); } catch (e) { /* 무시 */ }
 }
 
 function ui_nextSeed() {
@@ -7942,6 +7960,55 @@ function ui_localActor() { return ui_state ? getActor(ui_state, ui_localId) : nu
 const ui_keys = { w: false, a: false, s: false, d: false, sprint: false, crouchCtrl: false, crouchC: false };
 const ui_mouse = { fire: false, ads: false };
 const ui_latch = { firePressed: false, jump: false, roll: false, reload: false, interact: false, nade: false, ping: false, switchTo: -1, wheel: false };
+// 키 배정. 동작 → KeyboardEvent.code. 조작법 탭에서 바꾸고 설정과 함께 저장한다. 마우스 버튼·Esc 는 고정.
+const ui_BIND_DEFAULTS = { forward: 'KeyW', left: 'KeyA', back: 'KeyS', right: 'KeyD', sprint: 'ShiftLeft', crouch: 'KeyC', crouch2: 'ControlLeft',
+  jump: 'Space', roll: 'KeyQ', reload: 'KeyR', interact: 'KeyE', nade: 'KeyG', ping: 'KeyZ', weapon1: 'Digit1', weapon2: 'Digit2', score: 'Tab' };
+const ui_BIND_LABELS = { forward: '앞으로', left: '왼쪽', back: '뒤로', right: '오른쪽', sprint: '달리기 (사격 불가)', crouch: '앉기', crouch2: '앉기 (보조)',
+  jump: '점프', roll: '구르기 · 재사용 1.6초', reload: '재장전', interact: '무기 줍기', nade: '수류탄 · 목숨당 2개', ping: '위치 표시 (휠 클릭도 됨)',
+  weapon1: '주 무기', weapon2: '권총', score: '점수판' };
+const ui_binds = Object.assign({}, ui_BIND_DEFAULTS);
+let ui_bindOf = {};               // code → 동작 (ui_applyBinds 가 만든다)
+let ui_rebinding = '';            // 지금 새 키를 기다리는 동작('' = 없음)
+function ui_keyName(code) {
+  if (!code) return '없음';
+  if (code.startsWith('Key')) return code.slice(3);
+  if (code.startsWith('Digit')) return code.slice(5);
+  if (code.startsWith('Numpad')) return '숫자패드 ' + code.slice(6);
+  if (code.startsWith('Arrow')) return { Up: '↑', Down: '↓', Left: '←', Right: '→' }[code.slice(5)];
+  const side = code.endsWith('Left') ? '왼쪽 ' : code.endsWith('Right') ? '오른쪽 ' : '';
+  if (side) return side + code.replace(/Left$|Right$/, '').replace('Control', 'Ctrl').replace('Meta', 'Cmd');
+  return code;
+}
+function ui_applyBinds() {
+  ui_bindOf = {};
+  for (const act in ui_binds) if (ui_binds[act]) ui_bindOf[ui_binds[act]] = act;
+  const set = function (sel, act) { const k = document.querySelector(sel); if (k) k.textContent = ui_keyName(ui_binds[act]); };
+  set('#hud-nade kbd', 'nade'); set('#hud-roll kbd', 'roll'); set('#interact-prompt kbd', 'interact');
+  const box = document.getElementById('bind-list');
+  if (!box) return;
+  box.textContent = '';
+  for (const act in ui_BIND_LABELS) {
+    const dt = document.createElement('dt'), b = document.createElement('button'), dd = document.createElement('dd');
+    b.type = 'button'; b.className = 'bind' + (ui_rebinding === act ? ' wait' : '');
+    b.textContent = ui_rebinding === act ? '키를 누르세요' : ui_keyName(ui_binds[act]);
+    b.setAttribute('aria-label', ui_BIND_LABELS[act] + ' 키 바꾸기');
+    b.addEventListener('click', function () { playUiSound('click'); ui_rebinding = ui_rebinding === act ? '' : act; ui_applyBinds(); });
+    dd.textContent = ui_BIND_LABELS[act];
+    dt.appendChild(b); box.appendChild(dt); box.appendChild(dd);
+  }
+}
+// 새 키를 받는다. 다른 동작이 쓰던 키면 서로 맞바꾼다(키 하나에 동작 하나).
+function ui_rebind(code) {
+  const act = ui_rebinding;
+  ui_rebinding = '';
+  if (code !== 'Escape' && ui_binds[act] !== code) {
+    const other = ui_bindOf[code];
+    if (other) ui_binds[other] = ui_binds[act];
+    ui_binds[act] = code;
+    ui_saveSettings();
+  }
+  ui_applyBinds();
+}
 let ui_wheelAt = 0;               // 트랙패드 관성 스크롤이 무기를 계속 뒤집지 않게 하는 간격 제한
 let ui_scoreHeld = false;
 
@@ -7954,14 +8021,14 @@ function ui_clearInput() {
 }
 
 function ui_setKey(code, down) {
-  switch (code) {
-    case 'KeyW': ui_keys.w = down; return true;
-    case 'KeyA': ui_keys.a = down; return true;
-    case 'KeyS': ui_keys.s = down; return true;
-    case 'KeyD': ui_keys.d = down; return true;
-    case 'ShiftLeft': ui_keys.sprint = down; return true;
-    case 'ControlLeft': ui_keys.crouchCtrl = down; return true;
-    case 'KeyC': ui_keys.crouchC = down; return true;
+  switch (ui_bindOf[code]) {
+    case 'forward': ui_keys.w = down; return true;
+    case 'left': ui_keys.a = down; return true;
+    case 'back': ui_keys.s = down; return true;
+    case 'right': ui_keys.d = down; return true;
+    case 'sprint': ui_keys.sprint = down; return true;
+    case 'crouch2': ui_keys.crouchCtrl = down; return true;
+    case 'crouch': ui_keys.crouchC = down; return true;
     default: return false;
   }
 }
@@ -7969,6 +8036,7 @@ function ui_setKey(code, down) {
 function ui_onKeyDown(e) {
   resumeAudio();
   const code = e.code;
+  if (ui_rebinding) { e.preventDefault(); e.stopPropagation(); if (!e.repeat) { if (document.activeElement) document.activeElement.blur(); ui_rebind(code); } return; }
   if (code === 'Escape') {
     if (e.repeat) return;
     if (ui_phase === 'playing') ui_setPaused(true);
@@ -7978,25 +8046,26 @@ function ui_onKeyDown(e) {
     return;
   }
   if (ui_phase !== 'playing') return;
-  if (code === 'Tab') { ui_scoreHeld = true; e.preventDefault(); return; }
+  const act = ui_bindOf[code];
+  if (act === 'score') { ui_scoreHeld = true; e.preventDefault(); return; }
   if (ui_setKey(code, true)) { e.preventDefault(); return; }
-  if (e.repeat) { if (code === 'Space') e.preventDefault(); return; }
-  switch (code) {
-    case 'Space': ui_latch.jump = true; break;
-    case 'KeyQ': ui_latch.roll = true; break;
-    case 'KeyR': ui_latch.reload = true; break;
-    case 'KeyE': ui_latch.interact = true; break;
-    case 'KeyG': ui_latch.nade = true; break;
-    case 'KeyZ': ui_latch.ping = true; break;
-    case 'Digit1': ui_latch.switchTo = 0; break;
-    case 'Digit2': ui_latch.switchTo = 1; break;
-    default: return;
+  if (e.repeat) { if (act) e.preventDefault(); return; }
+  switch (act) {
+    case 'jump': ui_latch.jump = true; break;
+    case 'roll': ui_latch.roll = true; break;
+    case 'reload': ui_latch.reload = true; break;
+    case 'interact': ui_latch.interact = true; break;
+    case 'nade': ui_latch.nade = true; break;
+    case 'ping': ui_latch.ping = true; break;
+    case 'weapon1': ui_latch.switchTo = 0; break;
+    case 'weapon2': ui_latch.switchTo = 1; break;
+    default: if (code === 'Tab') e.preventDefault(); return;
   }
   e.preventDefault();
 }
 
 function ui_onKeyUp(e) {
-  if (e.code === 'Tab') { ui_scoreHeld = false; e.preventDefault(); return; }
+  if (ui_bindOf[e.code] === 'score') { ui_scoreHeld = false; e.preventDefault(); return; }
   ui_setKey(e.code, false);
 }
 
@@ -8302,7 +8371,7 @@ function ui_addKillfeed(ev) {
   k.textContent = killer.name; k.style.color = teamCol ? ui_colorCss(killer.colorIndex) : 'var(--text)';
   const w = document.createElement('span');
   w.className = 'kf-weapon';
-  w.textContent = ev.weaponId === 'Frag' ? '수류탄' : WEAPONS[ev.weaponId] ? WEAPONS[ev.weaponId].name : ev.weaponId;
+  w.textContent = ev.weaponId === 'Frag' ? '수류탄' : ev.weaponId === 'Fall' ? '낙하' : WEAPONS[ev.weaponId] ? WEAPONS[ev.weaponId].name : ev.weaponId;
   const v = document.createElement('span');
   v.textContent = victim.name; v.style.color = teamCol ? ui_colorCss(victim.colorIndex) : 'var(--text)';
   row.appendChild(k); row.appendChild(w);
@@ -8630,7 +8699,7 @@ function ui_updateHud(frameDt) {
       const killer = getActor(ui_state, a.lastKillerId);
       // 누가, 무엇으로, 그 상대의 남은 체력까지 알려 준다(아깝게 졌는지 알 수 있게)
       const wn = ui_deathBy === 'Frag' ? '수류탄' : WEAPONS[ui_deathBy] ? WEAPONS[ui_deathBy].name : '';
-      el['respawn-killer'].textContent = !killer ? '' : killer.id === a.id ? '자신의 수류탄에 쓰러짐'
+      el['respawn-killer'].textContent = !killer ? '' : killer.id === a.id ? (ui_deathBy === 'Fall' ? '높은 곳에서 떨어져 쓰러짐' : '자신의 수류탄에 쓰러짐')
         : killer.name + ' 에게 처치됨' + (wn ? ' · ' + wn : '') + (ui_deathHs ? ' · 헤드샷' : '') + (killer.alive ? ' · 상대 체력 ' + Math.ceil(killer.hp) : '');
     }
   }
@@ -9005,7 +9074,7 @@ function ui_bindEvents() {
     ui_syncMenu(); ui_saveSettings();
   });
   ui_el['opt-sensitivity'].addEventListener('input', function (e) {
-    ui_settings.sensitivity = clamp(parseFloat(e.target.value) || 1, 0.2, 3);
+    ui_settings.sensitivity = clamp(parseFloat(e.target.value) || 1, 0.02, 3);
     ui_el['val-sensitivity'].textContent = ui_settings.sensitivity.toFixed(2);
   });
   ui_el['opt-volume'].addEventListener('input', function (e) {
@@ -9492,7 +9561,7 @@ function net_onSnap(m) {
 // 예측이 직접 내는 내 이벤트. 방장이 보낸 같은 종류의 내 이벤트는 버린다(두 번 보이고 들리지 않게)
 const net_OWN_EV = new Set([EV.SHOT, EV.DRY_FIRE, EV.RELOAD_START, EV.RELOAD_SHELL, EV.RELOAD_END, EV.PUMP, EV.SWITCH, EV.JUMP, EV.LAND, EV.FOOTSTEP]);
 // 예측 전용 가짜 state: 액터가 나 하나뿐이라 광선이 남을 맞히지 않고(피해·처치는 방장만 정한다), 거치대·픽업도 없다
-const net_fake = { tick: 0, time: 0, rngState: 1, nextId: 1e9, phase: 'playing', settings: null, actors: [], racks: [], meds: [], pickups: [], sounds: [], events: [], ai: {} };
+const net_fake = { predict: true, tick: 0, time: 0, rngState: 1, nextId: 1e9, phase: 'playing', settings: null, actors: [], racks: [], meds: [], pickups: [], sounds: [], events: [], ai: {} };
 let net_predTick = 0;               // 다음 예측 틱이 방장의 몇 번째 틱에 해당하는가
 function net_cloneActor(src) {
   const o = JSON.parse(JSON.stringify(src));
@@ -9642,6 +9711,10 @@ function ui_boot() {
     playUiSound('click'); ui_showCareer();
   });
   document.getElementById('net-ver').textContent = '게임 버전 ' + net_version();
+  document.getElementById('btn-binds-reset').addEventListener('click', function () {
+    playUiSound('click'); ui_rebinding = ''; Object.assign(ui_binds, ui_BIND_DEFAULTS); ui_saveSettings(); ui_applyBinds();
+  });
+  ui_applyBinds();
   // 맵을 바꾸느라 다시 열린 경우: 있던 방으로 돌아간다
   try {
     const rj = JSON.parse(window.sessionStorage.getItem('sodiumRain.rejoin') || 'null');
