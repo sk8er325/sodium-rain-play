@@ -273,8 +273,9 @@ table.score tr.team-head td { padding-top: 12px; color: var(--muted); font-size:
 .overlay { position: fixed; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(3, 5, 9, 0.66); overflow-y: auto; }
 .dialog { background: var(--panel-solid); padding: 26px 28px 28px; animation: dialog-in 0.4s var(--ease-out) both; }
 @keyframes dialog-in { from { transform: translateY(10px); } to { transform: none; } }
-#menu-pause .dialog { width: min(360px, 92vw); display: grid; gap: 12px; }
+#menu-pause .dialog { width: min(420px, 92vw); display: grid; gap: 12px; }
 #menu-pause h2 { margin: 0 0 6px; font-family: var(--font-display); font-size: 30px; font-weight: 800; letter-spacing: 0.06em; }
+#pause-opts { display: grid; gap: 12px; padding: 12px 0 4px; border-top: 1px solid var(--line); margin-top: 4px; }
 #menu-pause p { margin: 0; color: var(--muted); font-size: 13.5px; }
 #menu-results .dialog { width: min(700px, 94vw); }
 #results-title { margin: 0; font-family: var(--font-display); font-size: clamp(38px, 6vw, 60px); font-weight: 800; letter-spacing: 0.04em; line-height: 1; color: var(--amber); }
@@ -507,6 +508,11 @@ table.score tr.team-head td { padding-top: 12px; color: var(--muted); font-size:
     <h2>일시정지</h2>
     <button id="btn-resume" class="btn btn-primary" type="button">계속</button>
     <button id="btn-quit" class="btn" type="button">메뉴로</button>
+    <div id="pause-opts">
+      <label class="opt"><span class="label">마우스 감도</span><input type="range" data-for="opt-sensitivity"><span class="val num"></span></label>
+      <label class="opt"><span class="label">시야각</span><input type="range" data-for="opt-fov"><span class="val num"></span></label>
+      <label class="opt"><span class="label">음량</span><input type="range" data-for="opt-volume"><span class="val num"></span></label>
+    </div>
     <p>Esc 를 다시 눌러도 계속합니다.</p>
   </div>
 </div>
@@ -8795,8 +8801,27 @@ function ui_startMatch(opts) {
   ui_requestLock();
 }
 
+// 일시정지 화면의 감도·시야각·음량: 메뉴 설정 탭의 같은 슬라이더를 그대로 움직인다(온라인 매치를 나가지 않고 바꿀 수 있게)
+function ui_syncPauseOpts() {
+  const rows = document.querySelectorAll('#pause-opts input');
+  for (let i = 0; i < rows.length; i++) {
+    const src = document.getElementById(rows[i].dataset.for);
+    rows[i].min = src.min; rows[i].max = src.max; rows[i].step = src.step; rows[i].value = src.value;
+    rows[i].nextElementSibling.textContent = document.getElementById(rows[i].dataset.for.replace('opt-', 'val-')).textContent;
+  }
+}
+function ui_bindPauseOpts() {
+  document.getElementById('pause-opts').addEventListener('input', function (e) {
+    const src = document.getElementById(e.target.dataset.for);
+    src.value = e.target.value;
+    src.dispatchEvent(new Event('input'));
+    ui_syncPauseOpts();
+  });
+  document.getElementById('pause-opts').addEventListener('change', function (e) { document.getElementById(e.target.dataset.for).dispatchEvent(new Event('change')); });
+}
 function ui_setPaused(b) {
   if (b && ui_phase === 'playing') {
+    ui_syncPauseOpts();
     ui_phase = 'paused';
     ui_pausedAt = performance.now();
     ui_clearInput();
@@ -9028,6 +9053,7 @@ function ui_bindEvents() {
     ui_selectTab(n.id.slice(4)); n.focus(); e.preventDefault();
   });
   ui_onButton(ui_el['btn-resume'], function () { ui_setPaused(false); });
+  ui_bindPauseOpts();
   ui_onButton(ui_el['btn-quit'], ui_toMenu);
   ui_onButton(ui_el['btn-replay'], function () { ui_startMatch(); });   // 같은 설정 · 새 시드
   ui_onButton(ui_el['btn-menu'], ui_toMenu);
