@@ -103,7 +103,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .net-input:focus-visible { outline: 2px solid var(--ice); outline-offset: 2px; }
 #net-players { list-style: none; margin: 0; padding: 10px 0 0; border-top: 1px solid var(--line); display: grid; gap: 6px; font-size: 13px; }
 #net-players li { display: flex; justify-content: space-between; gap: 12px; }
-#net-players .who { color: var(--muted); font-size: 12px; }
+#net-players .who { color: var(--muted); font-size: 12px; min-width: 54px; text-align: right; }
+#net-players li > :first-child { flex: 1; }
+#net-players .team { padding: 1px 9px; font: inherit; font-size: 12px; border: 1px solid; border-radius: 3px; background: none; }
+#net-players .team.t1 { color: var(--ice); }
+#net-players .team.t2 { color: var(--amber); }
+#net-players button.team { cursor: pointer; }
+#net-players button.team:hover, #net-players button.team:focus-visible { background: rgba(159, 196, 255, 0.1); outline: none; }
 #net-ver { margin: 0; color: var(--muted); font-size: 11px; letter-spacing: .06em; }
 #net-status { margin: 0; min-height: 1.4em; color: var(--amber); font-size: 13px; line-height: 1.4; }
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; grid-column: 2 / 4; border: 1px solid var(--line-strong); border-radius: 3px; overflow: hidden; }
@@ -9144,9 +9150,20 @@ function net_sendName() {
   if (net_role === 'guest' && net_hostConn && net_hostConn.open) try { net_hostConn.send({ t: 'n', n: ui_settings.name, v: net_version() }); } catch (e) { /* 무시 */ }
 }
 // 방 명단(메뉴): 방장이 1초마다 [이름, 지연] 목록을 만들어 보내고, 모두가 같은 목록을 본다
+// 팀전의 팀 나누기: 방장이 명단에서 사람마다 1팀·2팀을 고른다. net_hostTeam = 방장, g.team = 참가자(들어올 때 사람이 적은 팀)
+let net_hostTeam = 1, net_rosterKey = '';
+function net_fewerTeam() {
+  let n1 = net_hostTeam === 1 ? 1 : 0, n2 = 1 - n1;
+  for (let i = 0; i < net_guests.length; i++) { if (net_guests[i].team === 1) n1++; else if (net_guests[i].team === 2) n2++; }
+  return n2 < n1 ? 2 : 1;
+}
 function net_showRoster(list) {
   const ul = ui_el['net-players'];
   if (!ul) return;
+  // 1초마다 불리므로 내용이 같으면 다시 그리지 않는다(팀 버튼의 포커스·누름이 끊기지 않게)
+  const key = net_role + JSON.stringify(list);
+  if (key === net_rosterKey) return;
+  net_rosterKey = key;
   ui_show(ul, list.length > 0);
   ul.textContent = '';
   for (let i = 0; i < list.length; i++) {
@@ -9154,13 +9171,30 @@ function net_showRoster(list) {
     a.textContent = (i + 1) + '  ' + list[i].n;
     b.className = 'who num';
     b.textContent = i === 0 ? '방장' : list[i].ms >= 0 ? Math.round(list[i].ms) + ' ms' : '연결 중';
-    li.appendChild(a); li.appendChild(b); ul.appendChild(li);
+    li.appendChild(a);
+    const tm = list[i].tm | 0;
+    if (tm === 1 || tm === 2) {
+      // 팀전: 팀 표시. 방장 화면에서는 누르면 그 사람의 팀이 바뀐다
+      const t = document.createElement(net_role === 'host' ? 'button' : 'span');
+      t.className = 'team t' + tm; t.textContent = tm + '팀';
+      if (net_role === 'host') {
+        t.type = 'button'; t.title = '눌러서 팀 바꾸기'; t.setAttribute('aria-label', list[i].n + ' ' + tm + '팀, 눌러서 바꾸기');
+        t.addEventListener('click', function () {
+          playUiSound('click');
+          if (i === 0) net_hostTeam = 3 - net_hostTeam; else if (net_guests[i - 1]) net_guests[i - 1].team = 3 - net_guests[i - 1].team;
+          net_syncRoster();
+        });
+      }
+      li.appendChild(t);
+    }
+    li.appendChild(b); ul.appendChild(li);
   }
 }
 function net_syncRoster() {
   if (net_role === 'host') {
-    const list = [{ n: ui_settings.name || 'P1', ms: 0 }];
-    for (let i = 0; i < net_guests.length; i++) list.push({ n: net_guests[i].name || 'P' + (i + 2), ms: net_guests[i].rtt });
+    const tmode = ui_settings.mode === 'team';
+    const list = [{ n: ui_settings.name || 'P1', ms: 0, tm: tmode ? net_hostTeam : 0 }];
+    for (let i = 0; i < net_guests.length; i++) list.push({ n: net_guests[i].name || 'P' + (i + 2), ms: net_guests[i].rtt, tm: tmode ? net_guests[i].team : 0 });
     net_showRoster(list);
     net_broadcast({ t: 'r', l: list, m: ui_cm.id });
   } else if (net_role === '') net_showRoster([]);
@@ -9288,6 +9322,7 @@ async function net_hostRoom(reuse) {
     const g = { conn, idx: -1, cmd: makeCommand(), seen: performance.now(), queue: [], ack: 0, lastQ: 0, name: '', rtt: -1 };
     conn.on('open', function () {
       if (net_guests.length >= net_MAX_GUESTS) { try { conn.send({ t: 'full' }); } catch (e) { /* 무시 */ } setTimeout(function () { conn.close(); }, 300); return; }
+      g.team = net_fewerTeam();
       net_guests.push(g);
       net_roomLabel();
       // 자리에 앉히는 일은 버전 확인('n' 신호)이 끝난 뒤에 한다 — 버전이 다른 참가자가 매치에 잠깐 들어왔다 나가지 않게
@@ -9316,8 +9351,17 @@ function net_actorDefs() {
   const teamMode = ui_settings.mode === 'team';
   const total = teamMode || ui_settings.bots ? 4 : Math.max(defs.length, 2);
   for (let i = defs.length; i < total; i++) defs.push({ name: net_BOT_NAMES[i - 1], isBot: true, colorIndex: i });
-  // 팀전: 앞의 두 자리가 1팀, 뒤의 두 자리가 2팀(사람 2명이면 둘이 한 팀으로 봇 2명과 싸운다). 색은 팀 색
-  if (teamMode) for (let i = 0; i < defs.length; i++) { defs[i].team = i < 2 ? 1 : 2; defs[i].colorIndex = i < 2 ? 0 : 1; }
+  // 팀전: 사람은 방장이 명단에서 고른 팀, 봇은 사람이 적은 팀부터 채운다(3:1 도 된다). 색은 팀 색
+  if (teamMode) {
+    const n = [0, 0, 0];
+    defs[0].team = net_hostTeam;
+    for (let i = 0; i < net_guests.length; i++) defs[i + 1].team = net_guests[i].team === 2 ? 2 : 1;
+    for (let i = 0; i < defs.length; i++) if (!defs[i].isBot) n[defs[i].team]++;
+    for (let i = 0; i < defs.length; i++) if (defs[i].isBot) { defs[i].team = n[2] < n[1] ? 2 : 1; n[defs[i].team]++; }
+    // 한 팀이 비면(사람 4명이 모두 같은 팀) 상대가 없다 → 자리 순서대로 2:2
+    if (n[1] === 0 || n[2] === 0) for (let i = 0; i < defs.length; i++) defs[i].team = i < 2 ? 1 : 2;
+    for (let i = 0; i < defs.length; i++) defs[i].colorIndex = defs[i].team - 1;
+  }
   return defs;
 }
 let net_keys = null;                // 스냅샷에서 액터 값 배열의 순서(필드 이름 목록). 방장은 매치마다 다시 만들고, 참가자는 시작 신호로 받는다
@@ -9474,7 +9518,7 @@ function net_onHostData(d) {
     // 방장이 다른 맵을 골랐으면 대기 중에 같은 맵으로 맞춘다(다시 열고 같은 방으로 돌아온다)
     if (typeof d.m === 'string' && MAPS[d.m] && d.m !== ui_cm.id && ui_phase === 'menu') { ui_changeMap(d.m); return; }
     const list = [];
-    for (let i = 0; i < d.l.length && i < 4; i++) { const o = d.l[i] || {}, ms = +o.ms; list.push({ n: net_cleanName(o.n) || 'P' + (i + 1), ms: Number.isFinite(ms) ? ms : -1 }); }
+    for (let i = 0; i < d.l.length && i < 4; i++) { const o = d.l[i] || {}, ms = +o.ms; list.push({ n: net_cleanName(o.n) || 'P' + (i + 1), ms: Number.isFinite(ms) ? ms : -1, tm: o.tm === 1 || o.tm === 2 ? o.tm : 0 }); }
     net_showRoster(list);
   }
   else if (d.t === 'p') { const ms = performance.now() - (+d.ts); if (ms >= 0 && ms < 10000) net_rtt = net_rtt < 0 ? ms : net_rtt + (ms - net_rtt) * 0.3; }
